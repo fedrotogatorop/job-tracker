@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import './App.css';
 
 // ========================================
@@ -12,6 +12,19 @@ const STATUS_OPTIONS = [
   { value: 'pending', label: 'Pending' },
 ];
 
+const SAMPLE_COMPANIES = [
+  { company: 'Google', title: 'Software Engineer', location: 'Mountain View, CA', salary: '$150,000 - $200,000' },
+  { company: 'Microsoft', title: 'Frontend Developer', location: 'Seattle, WA', salary: '$130,000 - $180,000' },
+  { company: 'Apple', title: 'iOS Developer', location: 'Cupertino, CA', salary: '$140,000 - $190,000' },
+  { company: 'Amazon', title: 'Full Stack Engineer', location: 'Remote', salary: '$120,000 - $170,000' },
+  { company: 'Meta', title: 'React Developer', location: 'Menlo Park, CA', salary: '$145,000 - $195,000' },
+  { company: 'Netflix', title: 'Senior Engineer', location: 'Los Gatos, CA', salary: '$160,000 - $220,000' },
+  { company: 'Spotify', title: 'Backend Developer', location: 'Stockholm, Sweden', salary: '$100,000 - $140,000' },
+  { company: 'Airbnb', title: 'Product Engineer', location: 'San Francisco, CA', salary: '$135,000 - $185,000' },
+  { company: 'Uber', title: 'Mobile Developer', location: 'San Francisco, CA', salary: '$125,000 - $175,000' },
+  { company: 'Twitter', title: 'Platform Engineer', location: 'Remote', salary: '$130,000 - $180,000' },
+];
+
 const INITIAL_JOBS = [
   {
     id: 1,
@@ -22,6 +35,7 @@ const INITIAL_JOBS = [
     status: 'interview',
     dateApplied: '2026-02-05',
     notes: 'Second round interview scheduled',
+    logo: null,
   },
   {
     id: 2,
@@ -32,6 +46,7 @@ const INITIAL_JOBS = [
     status: 'applied',
     dateApplied: '2026-02-07',
     notes: 'Applied through LinkedIn',
+    logo: null,
   },
   {
     id: 3,
@@ -42,6 +57,7 @@ const INITIAL_JOBS = [
     status: 'offer',
     dateApplied: '2026-01-28',
     notes: 'Received offer letter!',
+    logo: null,
   },
 ];
 
@@ -53,6 +69,7 @@ const EMPTY_FORM = {
   status: 'applied',
   dateApplied: new Date().toISOString().split('T')[0],
   notes: '',
+  logo: null,
 };
 
 // ========================================
@@ -69,6 +86,8 @@ const formatDate = (dateStr) => {
 const getInitials = (name) => {
   return name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
 };
+
+const getRandomItem = (array) => array[Math.floor(Math.random() * array.length)];
 
 // ========================================
 // Components
@@ -108,17 +127,68 @@ function Header({ stats }) {
 }
 
 // Job Form Component
-function JobForm({ formData, onChange, onSubmit, onCancel, isEditing }) {
+function JobForm({ formData, onChange, onSubmit, onCancel, isEditing, onAutoGenerate }) {
+  const fileInputRef = useRef(null);
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     onChange({ ...formData, [name]: value });
+  };
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        onChange({ ...formData, logo: reader.result });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRemoveLogo = () => {
+    onChange({ ...formData, logo: null });
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   return (
     <form className="form" onSubmit={onSubmit}>
       <div className="form__header">
         <h2 className="form__title">{isEditing ? '✏️ Edit Job' : '➕ Add New Job'}</h2>
-        <p className="form__desc">Fill in the details of your job application</p>
+        <p className="form__desc">Fill in the details or upload an image to auto-generate</p>
+      </div>
+
+      {/* Image Upload & Auto Generate Section */}
+      <div className="form__upload-section">
+        <div className="upload-area">
+          <input
+            type="file"
+            accept="image/*"
+            onChange={handleImageUpload}
+            ref={fileInputRef}
+            id="logo-upload"
+            className="upload-input"
+          />
+          {formData.logo ? (
+            <div className="upload-preview">
+              <img src={formData.logo} alt="Company logo" className="upload-preview__image" />
+              <button type="button" className="upload-preview__remove" onClick={handleRemoveLogo}>
+                ✕
+              </button>
+            </div>
+          ) : (
+            <label htmlFor="logo-upload" className="upload-label">
+              <span className="upload-label__icon">📷</span>
+              <span className="upload-label__text">Upload Company Logo</span>
+              <span className="upload-label__hint">Click or drag image here</span>
+            </label>
+          )}
+        </div>
+        <button type="button" className="btn btn-auto-generate" onClick={onAutoGenerate}>
+          ✨ Auto Generate Data
+        </button>
       </div>
 
       <div className="form__grid">
@@ -229,7 +299,11 @@ function JobCard({ job, onEdit, onDelete, onStatusChange }) {
     <div className="job-card animate-in">
       <div className="job-card__header">
         <div className="job-card__company">
-          <div className="job-card__logo">{getInitials(job.company)}</div>
+          {job.logo ? (
+            <img src={job.logo} alt={job.company} className="job-card__logo-img" />
+          ) : (
+            <div className="job-card__logo">{getInitials(job.company)}</div>
+          )}
           <div className="job-card__info">
             <h3 className="job-card__title">{job.title}</h3>
             <span className="job-card__name">{job.company}</span>
@@ -384,6 +458,30 @@ function App() {
     setShowForm(false);
   };
 
+  const handleAutoGenerate = () => {
+    const sample = getRandomItem(SAMPLE_COMPANIES);
+    const notes = [
+      'Applied through company website',
+      'Referred by a friend',
+      'Found on LinkedIn',
+      'Recruiter reached out',
+      'Applied at career fair',
+    ];
+    
+    setFormData({
+      ...formData,
+      title: sample.title,
+      company: sample.company,
+      location: sample.location,
+      salary: sample.salary,
+      status: 'applied',
+      dateApplied: new Date().toISOString().split('T')[0],
+      notes: getRandomItem(notes),
+    });
+    
+    showToast('Data auto-generated! ✨');
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!formData.title || !formData.company) {
@@ -442,6 +540,7 @@ function App() {
                 onSubmit={handleSubmit}
                 onCancel={resetForm}
                 isEditing={!!editingJob}
+                onAutoGenerate={handleAutoGenerate}
               />
             )}
           </section>
