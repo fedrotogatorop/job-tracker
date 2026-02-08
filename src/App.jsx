@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import Tesseract from 'tesseract.js';
 import './App.css';
 
 // ========================================
@@ -10,19 +11,6 @@ const STATUS_OPTIONS = [
   { value: 'offer', label: 'Offer' },
   { value: 'rejected', label: 'Rejected' },
   { value: 'pending', label: 'Pending' },
-];
-
-const SAMPLE_COMPANIES = [
-  { company: 'Google', title: 'Software Engineer', location: 'Mountain View, CA', salary: '$150,000 - $200,000' },
-  { company: 'Microsoft', title: 'Frontend Developer', location: 'Seattle, WA', salary: '$130,000 - $180,000' },
-  { company: 'Apple', title: 'iOS Developer', location: 'Cupertino, CA', salary: '$140,000 - $190,000' },
-  { company: 'Amazon', title: 'Full Stack Engineer', location: 'Remote', salary: '$120,000 - $170,000' },
-  { company: 'Meta', title: 'React Developer', location: 'Menlo Park, CA', salary: '$145,000 - $195,000' },
-  { company: 'Netflix', title: 'Senior Engineer', location: 'Los Gatos, CA', salary: '$160,000 - $220,000' },
-  { company: 'Spotify', title: 'Backend Developer', location: 'Stockholm, Sweden', salary: '$100,000 - $140,000' },
-  { company: 'Airbnb', title: 'Product Engineer', location: 'San Francisco, CA', salary: '$135,000 - $185,000' },
-  { company: 'Uber', title: 'Mobile Developer', location: 'San Francisco, CA', salary: '$125,000 - $175,000' },
-  { company: 'Twitter', title: 'Platform Engineer', location: 'Remote', salary: '$130,000 - $180,000' },
 ];
 
 const INITIAL_JOBS = [
@@ -87,7 +75,116 @@ const getInitials = (name) => {
   return name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
 };
 
-const getRandomItem = (array) => array[Math.floor(Math.random() * array.length)];
+// Parse extracted text to find job-related information
+const parseJobData = (text) => {
+  const lines = text.split('\n').filter(line => line.trim().length > 0);
+  const data = {
+    title: '',
+    company: '',
+    location: '',
+    salary: '',
+    notes: '',
+  };
+
+  // Common job titles to look for
+  const jobTitleKeywords = [
+    'developer', 'engineer', 'designer', 'manager', 'analyst', 'architect',
+    'scientist', 'specialist', 'coordinator', 'administrator', 'consultant',
+    'director', 'lead', 'senior', 'junior', 'intern', 'associate', 'executive',
+    'programmer', 'technician', 'officer', 'representative'
+  ];
+
+  // Location indicators
+  const locationKeywords = ['remote', 'hybrid', 'on-site', 'onsite', 'office'];
+  const locationPatterns = [
+    /(?:location|based|located|office|city|area)[:\s]+([^,\n]+)/i,
+    /([A-Z][a-zA-Z]+(?:,\s*[A-Z]{2})?(?:,\s*[A-Z][a-zA-Z]+)?)/,
+    /(remote|hybrid|on-site|onsite)/i,
+  ];
+
+  // Salary patterns
+  const salaryPatterns = [
+    /\$[\d,]+(?:\s*[-–]\s*\$?[\d,]+)?(?:\s*(?:per|\/)\s*(?:year|month|hour|yr|mo|hr))?/i,
+    /(?:salary|compensation|pay)[:\s]*\$?[\d,]+/i,
+    /(?:IDR|Rp\.?)\s*[\d.,]+(?:\s*[-–]\s*(?:IDR|Rp\.?)?\s*[\d.,]+)?/i,
+    /[\d,]+\s*[-–]\s*[\d,]+\s*(?:USD|IDR|EUR|GBP)/i,
+  ];
+
+  // Company patterns
+  const companyPatterns = [
+    /(?:company|employer|at|@)[:\s]+([^\n,]+)/i,
+    /(?:inc\.|corp\.|ltd\.|llc|co\.|company|corporation|technologies|solutions|systems|group)/i,
+  ];
+
+  // Process each line
+  for (const line of lines) {
+    const lowerLine = line.toLowerCase();
+
+    // Try to find job title
+    if (!data.title) {
+      for (const keyword of jobTitleKeywords) {
+        if (lowerLine.includes(keyword)) {
+          data.title = line.trim();
+          break;
+        }
+      }
+    }
+
+    // Try to find salary
+    if (!data.salary) {
+      for (const pattern of salaryPatterns) {
+        const match = line.match(pattern);
+        if (match) {
+          data.salary = match[0].trim();
+          break;
+        }
+      }
+    }
+
+    // Try to find location
+    if (!data.location) {
+      for (const keyword of locationKeywords) {
+        if (lowerLine.includes(keyword)) {
+          data.location = line.trim();
+          break;
+        }
+      }
+      if (!data.location) {
+        for (const pattern of locationPatterns) {
+          const match = line.match(pattern);
+          if (match && match[1]) {
+            data.location = match[1].trim();
+            break;
+          }
+        }
+      }
+    }
+
+    // Try to find company
+    if (!data.company) {
+      for (const pattern of companyPatterns) {
+        const match = line.match(pattern);
+        if (match) {
+          data.company = match[1] ? match[1].trim() : line.trim();
+          break;
+        }
+      }
+    }
+  }
+
+  // If we couldn't parse structured data, use first lines as fallback
+  if (!data.title && lines.length > 0) {
+    data.title = lines[0].slice(0, 50);
+  }
+  if (!data.company && lines.length > 1) {
+    data.company = lines[1].slice(0, 50);
+  }
+
+  // Store full extracted text in notes
+  data.notes = `Extracted from image:\n${text.slice(0, 500)}...`;
+
+  return data;
+};
 
 // ========================================
 // Components
@@ -127,23 +224,12 @@ function Header({ stats }) {
 }
 
 // Job Form Component
-function JobForm({ formData, onChange, onSubmit, onCancel, isEditing, onAutoGenerate }) {
+function JobForm({ formData, onChange, onSubmit, onCancel, isEditing, isProcessing, processingProgress }) {
   const fileInputRef = useRef(null);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     onChange({ ...formData, [name]: value });
-  };
-
-  const handleImageUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        onChange({ ...formData, logo: reader.result });
-      };
-      reader.readAsDataURL(file);
-    }
   };
 
   const handleRemoveLogo = () => {
@@ -157,38 +243,60 @@ function JobForm({ formData, onChange, onSubmit, onCancel, isEditing, onAutoGene
     <form className="form" onSubmit={onSubmit}>
       <div className="form__header">
         <h2 className="form__title">{isEditing ? '✏️ Edit Job' : '➕ Add New Job'}</h2>
-        <p className="form__desc">Fill in the details or upload an image to auto-generate</p>
+        <p className="form__desc">Upload an image to extract data automatically or fill manually</p>
       </div>
 
-      {/* Image Upload & Auto Generate Section */}
+      {/* Image Upload Section */}
       <div className="form__upload-section">
         <div className="upload-area">
           <input
             type="file"
             accept="image/*"
-            onChange={handleImageUpload}
+            onChange={(e) => {
+              if (e.target.files[0]) {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                  onChange({ ...formData, logo: reader.result });
+                };
+                reader.readAsDataURL(e.target.files[0]);
+              }
+            }}
             ref={fileInputRef}
             id="logo-upload"
             className="upload-input"
+            disabled={isProcessing}
           />
           {formData.logo ? (
             <div className="upload-preview">
-              <img src={formData.logo} alt="Company logo" className="upload-preview__image" />
-              <button type="button" className="upload-preview__remove" onClick={handleRemoveLogo}>
+              <img src={formData.logo} alt="Uploaded" className="upload-preview__image" />
+              <button 
+                type="button" 
+                className="upload-preview__remove" 
+                onClick={handleRemoveLogo}
+                disabled={isProcessing}
+              >
                 ✕
               </button>
             </div>
           ) : (
-            <label htmlFor="logo-upload" className="upload-label">
+            <label htmlFor="logo-upload" className={`upload-label ${isProcessing ? 'upload-label--disabled' : ''}`}>
               <span className="upload-label__icon">📷</span>
-              <span className="upload-label__text">Upload Company Logo</span>
-              <span className="upload-label__hint">Click or drag image here</span>
+              <span className="upload-label__text">Upload Job Image</span>
+              <span className="upload-label__hint">Screenshot of job posting, etc.</span>
             </label>
           )}
         </div>
-        <button type="button" className="btn btn-auto-generate" onClick={onAutoGenerate}>
-          ✨ Auto Generate Data
-        </button>
+
+        {/* Processing Indicator */}
+        {isProcessing && (
+          <div className="processing-indicator">
+            <div className="processing-spinner"></div>
+            <span className="processing-text">Extracting text... {Math.round(processingProgress)}%</span>
+            <div className="processing-bar">
+              <div className="processing-bar__fill" style={{ width: `${processingProgress}%` }}></div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="form__grid">
@@ -278,14 +386,15 @@ function JobForm({ formData, onChange, onSubmit, onCancel, isEditing, onAutoGene
           placeholder="Add any notes..."
           value={formData.notes}
           onChange={handleChange}
+          rows={4}
         />
       </div>
 
       <div className="form__actions">
-        <button type="button" className="btn btn-secondary" onClick={onCancel}>
+        <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={isProcessing}>
           Cancel
         </button>
-        <button type="submit" className="btn btn-primary">
+        <button type="submit" className="btn btn-primary" disabled={isProcessing}>
           {isEditing ? 'Update Job' : 'Add Job'}
         </button>
       </div>
@@ -425,6 +534,8 @@ function App() {
   const [editingJob, setEditingJob] = useState(null);
   const [formData, setFormData] = useState(EMPTY_FORM);
   const [toast, setToast] = useState(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [processingProgress, setProcessingProgress] = useState(0);
 
   // Effects
   useEffect(() => {
@@ -437,6 +548,74 @@ function App() {
       return () => clearTimeout(timer);
     }
   }, [toast]);
+
+  // Process image with OCR when logo changes
+  useEffect(() => {
+    // Use a flag to prevent re-processing
+    let isCancelled = false;
+    
+    const processImage = async () => {
+      // Only process if we have a new logo and not already processing
+      if (!formData.logo || isProcessing || editingJob) {
+        return;
+      }
+      
+      setIsProcessing(true);
+      setProcessingProgress(0);
+      
+      try {
+        const result = await Tesseract.recognize(
+          formData.logo,
+          'eng',
+          {
+            logger: (m) => {
+              if (m.status === 'recognizing text' && !isCancelled) {
+                setProcessingProgress(m.progress * 100);
+              }
+            },
+          }
+        );
+
+        if (isCancelled) return;
+
+        const extractedText = result.data.text;
+        
+        if (extractedText.trim()) {
+          const parsedData = parseJobData(extractedText);
+          
+          setFormData(prev => ({
+            ...prev,
+            title: parsedData.title || prev.title,
+            company: parsedData.company || prev.company,
+            location: parsedData.location || prev.location,
+            salary: parsedData.salary || prev.salary,
+            notes: parsedData.notes || prev.notes,
+          }));
+          
+          showToast('Data extracted from image! ✨');
+        } else {
+          showToast('No text found in image', 'error');
+        }
+      } catch (error) {
+        console.error('OCR Error:', error);
+        if (!isCancelled) {
+          showToast('Failed to extract text from image', 'error');
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsProcessing(false);
+          setProcessingProgress(0);
+        }
+      }
+    };
+
+    processImage();
+    
+    return () => {
+      isCancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.logo]);
 
   // Computed Values
   const stats = {
@@ -456,30 +635,6 @@ function App() {
     setFormData(EMPTY_FORM);
     setEditingJob(null);
     setShowForm(false);
-  };
-
-  const handleAutoGenerate = () => {
-    const sample = getRandomItem(SAMPLE_COMPANIES);
-    const notes = [
-      'Applied through company website',
-      'Referred by a friend',
-      'Found on LinkedIn',
-      'Recruiter reached out',
-      'Applied at career fair',
-    ];
-    
-    setFormData({
-      ...formData,
-      title: sample.title,
-      company: sample.company,
-      location: sample.location,
-      salary: sample.salary,
-      status: 'applied',
-      dateApplied: new Date().toISOString().split('T')[0],
-      notes: getRandomItem(notes),
-    });
-    
-    showToast('Data auto-generated! ✨');
   };
 
   const handleSubmit = (e) => {
@@ -540,7 +695,8 @@ function App() {
                 onSubmit={handleSubmit}
                 onCancel={resetForm}
                 isEditing={!!editingJob}
-                onAutoGenerate={handleAutoGenerate}
+                isProcessing={isProcessing}
+                processingProgress={processingProgress}
               />
             )}
           </section>
