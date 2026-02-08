@@ -222,8 +222,11 @@ a:hover {
   padding-right: 40px;
 }
 
-.form-select option {
-  background: var(--bg-dark);
+.form-select option,
+select option {
+  background: #1a1a2e;
+  color: var(--text-white);
+  padding: var(--space-sm);
 }
 
 .form-textarea {

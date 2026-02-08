@@ -377,6 +377,7 @@
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+  line-clamp: 2;
   overflow: hidden;
 }
 
@@ -394,12 +395,29 @@
 
 .job-card__status {
   cursor: pointer;
-  border: none;
-  background: inherit;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-full);
+  background-color: transparent;
   color: inherit;
   font-weight: 600;
   font-size: 0.7rem;
-  padding: 4px 8px;
+  padding: 4px 24px 4px 8px;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='rgba(255,255,255,0.5)' stroke-width='2'%3E%3Cpath d='M3 4.5l3 3 3-3'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  background-size: 12px;
+}
+
+.job-card__status:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.job-card__status option {
+  background: #1a1a2e;
+  color: var(--text-white);
+  padding: 8px;
 }
 
 /* ========================================
