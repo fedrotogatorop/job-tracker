@@ -77,7 +77,8 @@ const getInitials = (name) => {
 
 // Parse extracted text to find job-related information
 const parseJobData = (text) => {
-  const lines = text.split('\n').filter(line => line.trim().length > 0);
+  const lines = text.split('\n').filter(line => line.trim().length > 2);
+  
   const data = {
     title: '',
     company: '',
@@ -86,102 +87,171 @@ const parseJobData = (text) => {
     notes: '',
   };
 
-  // Common job titles to look for
-  const jobTitleKeywords = [
-    'developer', 'engineer', 'designer', 'manager', 'analyst', 'architect',
-    'scientist', 'specialist', 'coordinator', 'administrator', 'consultant',
-    'director', 'lead', 'senior', 'junior', 'intern', 'associate', 'executive',
-    'programmer', 'technician', 'officer', 'representative'
+  // ========================================
+  // 1. FIND COMPANY NAME FIRST
+  // ========================================
+  // Indonesian company patterns (PT., CV., etc.)
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    // Match PT. or PT followed by company name
+    if (/^PT\.?\s+/i.test(trimmedLine) || /^CV\.?\s+/i.test(trimmedLine)) {
+      data.company = trimmedLine;
+      break;
+    }
+  }
+  
+  // International company patterns
+  if (!data.company) {
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (/(?:Inc\.|Corp\.|Ltd\.|LLC|Co\.|Corporation|Company|Technologies|Solutions|Group|GmbH|S\.A\.)$/i.test(trimmedLine)) {
+        data.company = trimmedLine;
+        break;
+      }
+    }
+  }
+
+  // ========================================
+  // 2. FIND JOB TITLE
+  // ========================================
+  const jobTitlePatterns = [
+    // Specific job titles
+    /\b(software\s+engineer|software\s+developer|web\s+developer|frontend\s+developer|backend\s+developer|full\s*stack\s+developer|mobile\s+developer|data\s+scientist|data\s+analyst|data\s+engineer|devops\s+engineer|qa\s+engineer|ui\/ux\s+designer|product\s+manager|project\s+manager|business\s+analyst|system\s+analyst|network\s+engineer|security\s+analyst|cloud\s+engineer|machine\s+learning\s+engineer)\b/i,
+    // Generic patterns with common keywords
+    /\b(senior|junior|lead|staff|principal|head\s+of)?\s*(programmer|developer|engineer|designer|analyst|architect|manager|administrator|specialist|coordinator|consultant|technician|officer)\b/i,
+    // Indonesian job titles
+    /\b(staff\s+it|it\s+support|admin\s+it|teknisi|operator|staf|karyawan)\b/i,
   ];
 
-  // Location indicators
-  const locationKeywords = ['remote', 'hybrid', 'on-site', 'onsite', 'office'];
-  const locationPatterns = [
-    /(?:location|based|located|office|city|area)[:\s]+([^,\n]+)/i,
-    /([A-Z][a-zA-Z]+(?:,\s*[A-Z]{2})?(?:,\s*[A-Z][a-zA-Z]+)?)/,
-    /(remote|hybrid|on-site|onsite)/i,
-  ];
+  for (const line of lines) {
+    // Skip if this line is already the company
+    if (line.trim() === data.company) continue;
+    
+    for (const pattern of jobTitlePatterns) {
+      const match = line.match(pattern);
+      if (match) {
+        data.title = line.trim();
+        break;
+      }
+    }
+    if (data.title) break;
+  }
 
-  // Salary patterns
-  const salaryPatterns = [
-    /\$[\d,]+(?:\s*[-–]\s*\$?[\d,]+)?(?:\s*(?:per|\/)\s*(?:year|month|hour|yr|mo|hr))?/i,
-    /(?:salary|compensation|pay)[:\s]*\$?[\d,]+/i,
-    /(?:IDR|Rp\.?)\s*[\d.,]+(?:\s*[-–]\s*(?:IDR|Rp\.?)?\s*[\d.,]+)?/i,
-    /[\d,]+\s*[-–]\s*[\d,]+\s*(?:USD|IDR|EUR|GBP)/i,
-  ];
+  // Look for "Posisi:", "Position:", "Lowongan:", "Dibutuhkan:" labels
+  if (!data.title) {
+    for (const line of lines) {
+      const match = line.match(/(?:posisi|position|lowongan|dibutuhkan|hiring|vacancy)[:\s]+(.+)/i);
+      if (match && match[1]) {
+        data.title = match[1].trim();
+        break;
+      }
+    }
+  }
 
-  // Company patterns
-  const companyPatterns = [
-    /(?:company|employer|at|@)[:\s]+([^\n,]+)/i,
-    /(?:inc\.|corp\.|ltd\.|llc|co\.|company|corporation|technologies|solutions|systems|group)/i,
-  ];
-
-  // Process each line
+  // ========================================
+  // 3. FIND LOCATION
+  // ========================================
+  // Indonesian cities
+  const indonesianCities = ['jakarta', 'surabaya', 'bandung', 'medan', 'semarang', 'makassar', 'palembang', 'tangerang', 'depok', 'bekasi', 'bogor', 'malang', 'yogyakarta', 'solo', 'denpasar', 'bali', 'batam'];
+  
   for (const line of lines) {
     const lowerLine = line.toLowerCase();
-
-    // Try to find job title
-    if (!data.title) {
-      for (const keyword of jobTitleKeywords) {
-        if (lowerLine.includes(keyword)) {
-          data.title = line.trim();
-          break;
-        }
+    
+    // Check for location labels
+    const locationMatch = line.match(/(?:lokasi|location|alamat|address|tempat|kantor|office)[:\s]+(.+)/i);
+    if (locationMatch && locationMatch[1]) {
+      data.location = locationMatch[1].trim();
+      break;
+    }
+    
+    // Check for Indonesian cities
+    for (const city of indonesianCities) {
+      if (lowerLine.includes(city) && !lowerLine.includes('pt.') && !lowerLine.includes('cv.')) {
+        data.location = line.trim();
+        break;
       }
     }
+    if (data.location) break;
+    
+    // Check for remote/hybrid
+    if (/\b(remote|hybrid|wfh|work\s+from\s+home|onsite|on-site)\b/i.test(line)) {
+      data.location = line.trim();
+      break;
+    }
+  }
 
-    // Try to find salary
-    if (!data.salary) {
-      for (const pattern of salaryPatterns) {
-        const match = line.match(pattern);
-        if (match) {
-          data.salary = match[0].trim();
-          break;
-        }
+  // ========================================
+  // 4. FIND SALARY
+  // ========================================
+  const salaryPatterns = [
+    // Indonesian Rupiah
+    /(?:Rp\.?|IDR)\s*[\d.,]+(?:\s*[-–]\s*(?:Rp\.?|IDR)?\s*[\d.,]+)?(?:\s*(?:juta|jt|rb|ribu))?/i,
+    // Gaji label
+    /(?:gaji|salary|upah|penghasilan)[:\s]*(?:Rp\.?|IDR)?\s*[\d.,]+/i,
+    // USD format
+    /\$[\d,]+(?:\s*[-–]\s*\$?[\d,]+)?(?:\s*(?:\/|\s+per\s+)(?:year|month|bulan|tahun))?/i,
+    // Range with currency
+    /[\d.,]+\s*[-–]\s*[\d.,]+\s*(?:USD|IDR|juta|jt)/i,
+  ];
+
+  for (const line of lines) {
+    for (const pattern of salaryPatterns) {
+      const match = line.match(pattern);
+      if (match) {
+        data.salary = match[0].trim();
+        break;
       }
     }
+    if (data.salary) break;
+  }
 
-    // Try to find location
-    if (!data.location) {
-      for (const keyword of locationKeywords) {
-        if (lowerLine.includes(keyword)) {
-          data.location = line.trim();
-          break;
-        }
-      }
-      if (!data.location) {
-        for (const pattern of locationPatterns) {
-          const match = line.match(pattern);
-          if (match && match[1]) {
-            data.location = match[1].trim();
-            break;
-          }
-        }
-      }
-    }
-
-    // Try to find company
-    if (!data.company) {
-      for (const pattern of companyPatterns) {
-        const match = line.match(pattern);
-        if (match) {
-          data.company = match[1] ? match[1].trim() : line.trim();
-          break;
-        }
+  // ========================================
+  // 5. FALLBACK - Use first meaningful lines
+  // ========================================
+  // If no company found, look for first capitalized line that's not a common word
+  if (!data.company) {
+    for (const line of lines) {
+      const trimmed = line.trim();
+      // Skip common phrases and short lines
+      if (trimmed.length > 5 && 
+          !/^(we are|hiring|lowongan|dibutuhkan|kualifikasi|persyaratan|requirements)/i.test(trimmed) &&
+          /^[A-Z]/.test(trimmed)) {
+        data.company = trimmed.slice(0, 50);
+        break;
       }
     }
   }
 
-  // If we couldn't parse structured data, use first lines as fallback
-  if (!data.title && lines.length > 0) {
-    data.title = lines[0].slice(0, 50);
-  }
-  if (!data.company && lines.length > 1) {
-    data.company = lines[1].slice(0, 50);
+  // If no title found, look for lines with "hiring", "looking for", "dibutuhkan"
+  if (!data.title) {
+    for (const line of lines) {
+      if (/\b(hiring|looking\s+for|dibutuhkan|dicari|membutuhkan)\b/i.test(line)) {
+        // Try to extract what comes after
+        const match = line.match(/(?:hiring|looking\s+for|dibutuhkan|dicari|membutuhkan)[:\s]+(.+)/i);
+        if (match && match[1]) {
+          data.title = match[1].trim().slice(0, 50);
+        } else {
+          data.title = line.trim().slice(0, 50);
+        }
+        break;
+      }
+    }
   }
 
-  // Store full extracted text in notes
-  data.notes = `Extracted from image:\n${text.slice(0, 500)}...`;
+  // Last resort: use first line as company if still empty
+  if (!data.company && lines.length > 0) {
+    data.company = lines[0].trim().slice(0, 50);
+  }
+  
+  // Use second line as title if still empty (and different from company)
+  if (!data.title && lines.length > 1 && lines[1].trim() !== data.company) {
+    data.title = lines[1].trim().slice(0, 50);
+  }
+
+  // ========================================
+  // 6. STORE FULL TEXT IN NOTES
+  // ========================================
+  data.notes = `Extracted from image:\n${text.slice(0, 500)}${text.length > 500 ? '...' : ''}`;
 
   return data;
 };
